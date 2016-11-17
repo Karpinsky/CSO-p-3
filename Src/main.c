@@ -121,7 +121,7 @@ int main(void)
 		  short measuring = 0;
 		  uint32_t measured_time;
 
-		  uint32_t impulse_timeout = 38 / 1000;
+		  double impulse_timeout_miliseconds = 38 / 1000;
 	  }
 
   }
