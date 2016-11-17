@@ -58,6 +58,10 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN 0 */
 
+#define hcsr04_trig GPIO_Pin_2
+#define hcsr04_echo GPIO_Pin_1
+#define hcsr04_portConnected GPIOB
+
 /* USER CODE END 0 */
 
 int main(void)
@@ -80,8 +84,23 @@ int main(void)
   MX_TIM6_Init();
 
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start(&htim6);
+  HAL_TIM_Base_Start_IT(&htim6);
 
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
+  // Check echo for 0
+  if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1))
+  {
+	  // Error - no impuls, but echo is already 1
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
+	  printf("Error -- Echo line is high, though no impuls was given\n");
+	  while(1); // Freeze
+  }
+
+  uint32_t starting_ticks;
+  uint32_t timeout_ticks;
+  uint32_t distance_mm;
+
+  ushort are_echoing = 0;
 
   /* USER CODE END 2 */
 
@@ -92,6 +111,18 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
+
+	  if(!are_echoing)
+	  {
+
+	  }
+	  else
+	  {
+		  short measuring = 0;
+		  uint32_t measured_time;
+
+		  uint32_t impulse_timeout = 38 / 1000;
+	  }
 
   }
   /* USER CODE END 3 */
