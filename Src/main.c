@@ -35,6 +35,7 @@
 #include "stm32f4xx_hal.h"
 #include "tim.h"
 #include "gpio.h"
+#include <stdbool.h>
 
 /* USER CODE BEGIN Includes */
 
@@ -58,9 +59,45 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN 0 */
 
-#define hcsr04_trig GPIO_Pin_2
-#define hcsr04_echo GPIO_Pin_1
+#define hcsr04_trig GPIO_PIN_2
+#define hcsr04_echo GPIO_PIN_1
 #define hcsr04_portConnected GPIOB
+#define SystemCoreClockInMHz (SystemCoreClock/1000000)
+#define MICROSECONDS_GRANULARITY 4
+
+volatile uint32_t tim6_overflows = 0;
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if( htim->Instance == TIM6 )
+  {
+   ++tim6_overflows;
+  }
+}
+
+inline void TIM6_reinit()
+{
+ HAL_TIM_Base_Stop(&htim6);
+ __HAL_TIM_SET_PRESCALER( &htim6, (SystemCoreClockInMHz-1) );
+ __HAL_TIM_SET_COUNTER( &htim6, 0 );
+ tim6_overflows = 0;
+ HAL_TIM_Base_Start(&htim6);
+}
+
+inline uint32_t get_tim6_us()
+{
+ __HAL_TIM_DISABLE_IT(&htim6, TIM_IT_UPDATE);
+ //__disable_irq();
+ uint32_t res = tim6_overflows * 10000 + __HAL_TIM_GET_COUNTER(&htim6);
+ //__enable_irq();
+ __HAL_TIM_ENABLE_IT(&htim6, TIM_IT_UPDATE);
+ return res;
+}
+
+inline void udelay_TIM6(uint32_t useconds) {
+ uint32_t before = get_tim6_us();
+ while( get_tim6_us() < before+useconds){}
+}
 
 /* USER CODE END 0 */
 
@@ -88,7 +125,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim6);
 
   // Check echo for 0
-  if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1))
+  if(HAL_GPIO_ReadPin(hcsr04_portConnected, hcsr04_echo))
   {
 	  // Error - no impuls, but echo is already 1
 	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);
@@ -100,7 +137,7 @@ int main(void)
   uint32_t timeout_ticks;
   uint32_t distance_mm;
 
-  ushort are_echoing = 0;
+  bool are_echoing = false;
 
   /* USER CODE END 2 */
 
@@ -111,19 +148,66 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-
 	  if(!are_echoing)
 	  {
+		udelay_TIM6(500000/2);
 
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+
+		udelay_TIM6(500000/2);
+
+		are_echoing = true;
+
+		HAL_GPIO_WritePin(hcsr04_portConnected, hcsr04_trig, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
+		printf("Echo signal enabled\n");
+
+		udelay_TIM6(12);
+
+		HAL_GPIO_WritePin(hcsr04_portConnected, hcsr04_trig, GPIO_PIN_RESET);
+
+		timeout_ticks=get_tim6_us();
 	  }
 	  else
 	  {
-		  short measuring = 0;
-		  uint32_t measured_time;
+		bool measuring = false;
+		uint32_t measured_time;
 
-		  double impulse_timeout_miliseconds = 38 / 1000;
+		uint32_t usoniq_timeout = 100000;
+		while( (get_tim6_us() - timeout_ticks) < usoniq_timeout )
+		{
+
+			if( HAL_GPIO_ReadPin(hcsr04_portConnected, hcsr04_trig) )
+			{
+				if( !measuring )
+				{
+					starting_ticks=get_tim6_us();
+					measuring = true;
+				}
+			}
+			else{
+				if(measuring)
+				{
+					measured_time = (get_tim6_us() - starting_ticks)*10*MICROSECONDS_GRANULARITY;
+					distance_mm = measured_time/58;
+					// Success - enable green.
+					HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+					break;
+				}
+			}
+		}
+		if(!measuring)
+		{
+			// Notify error and try again
+			HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
+			printf("Echo signal not arrived in time\n");
+		}
+		else{
+			printf("Distance: %lu mm, measured time: %lu us\n", distance_mm, measured_time/10);
+		}
+		are_echoing = false;
 	  }
-
   }
   /* USER CODE END 3 */
 
